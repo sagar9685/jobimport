@@ -1,4 +1,3 @@
-// routes/importRoutes.js
 const express = require("express");
 const router = express.Router();
 const { fetchJobFeed } = require("../services/JobService");
@@ -11,43 +10,65 @@ const urls = [
   "https://www.higheredjobs.com/rss/articleFeed.cfm",
 ];
 
-// Trigger job import
 router.post("/trigger-import", async (req, res) => {
-  console.log("In trigger");
+  console.log("🚀 Triggering job import...");
+
   try {
-    for (let url of urls) {
-      console.log("url", url);
-      const jobs = await fetchJobFeed(url);
-      console.log("jjjjjjjjjjj", jobs);
-      const fileName = url; // Using full URL as fileName
-      await jobQueue.add("import-jobs", { fileName, jobs });
-    }
-    res.json({ message: "Jobs added to queue for processing" });
+    const results = await Promise.all(
+      urls.map(async (url) => {
+        try {
+          const jobData = await fetchJobFeed(url);
+
+          console.log("✅ Jobs fetched for", url, jobData);
+
+          const fileName = jobData.fileName || encodeURIComponent(url); // fallback
+          await jobQueue.add("import-jobs", { fileName, jobData });
+
+          return {
+            fileName,
+            importDate: jobData.importDate,
+            total: jobData.total,
+            new: jobData.new,
+            updated: jobData.updated,
+            failed: jobData.failed,
+          };
+        } catch (err) {
+          console.error(`❌ Failed to process ${url}:`, err.message);
+          return {
+            fileName: encodeURIComponent(url),
+            error: err.message,
+          };
+        }
+      })
+    );
+
+    console.log("📦 All imports completed.");
+    res.json(results);
   } catch (error) {
-    console.error("Error triggering import:", error);
-    res.status(500).json({ error: "Failed to trigger import" });
+    console.error("❌ Error triggering import:", error.message);
+    res.status(500).json({ error: "Failed to trigger import." });
   }
 });
 
-// Get import history
 router.get("/import-history", async (req, res) => {
-  console.log("Import History");
+  console.log("📜 Fetching import history...");
+
   try {
     const logs = await ImportLog.find().sort({ timestamp: -1 });
-    console.log(logs);
-    res.json(
-      logs.map((log) => ({
-        fileName: log.fileName,
-        timestamp: log.timestamp,
-        total: log.totalFetched,
-        new: log.newJobs,
-        updated: log.updatedJobs,
-        failed: log.failedJobs,
-      }))
-    );
+
+    const formatted = logs.map((log) => ({
+      fileName: log.fileName,
+      timestamp: log.timestamp,
+      total: log.totalFetched,
+      new: log.newJobs,
+      updated: log.updatedJobs,
+      failed: log.failedJobs,
+    }));
+
+    res.json(formatted);
   } catch (error) {
-    console.error("Failed to fetch import history:", error);
-    res.status(500).json({ error: "Failed to fetch import history" });
+    console.error("❌ Failed to fetch import history:", error.message);
+    res.status(500).json({ error: "Failed to fetch import history." });
   }
 });
 
